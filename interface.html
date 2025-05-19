@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Envio de Mensagens</title>
+  <link rel="icon" type="image/x-icon" href="icone.ico">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f4f6f8;
+    }
+
+    .content {
+      padding: 30px 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .section-block {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+      width: 80%;
+      max-width: 1000px;
+      margin-bottom: 30px;
+    }
+
+    .top-container {
+      margin-top: 30px;
+      text-align: center;
+    }
+
+    .header-icon {
+      font-size: 36px;
+      color: #27ae60;
+    }
+
+    h1 {
+      color: #2c3e50;
+      font-size: 26px;
+      margin: 10px 0 4px;
+    }
+
+    .subtitle {
+      font-size: 15px;
+      color: #333;
+      font-weight: bold;
+    }
+
+    .radio-group {
+      text-align: left;
+      margin: 15px auto;
+      max-width: 400px;
+    }
+
+    .radio-group label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 15px;
+    }
+
+    input[type="radio"], input[type="checkbox"] {
+      margin-right: 10px;
+    }
+
+    .custom-file-upload {
+      display: inline-block;
+      padding: 8px 15px;
+      cursor: pointer;
+      background-color: #ecf0f1;
+      border-radius: 6px;
+      font-size: 14px;
+      color: #2c3e50;
+      border: 1px solid #ccc;
+    }
+
+    #fileInput {
+      display: none;
+    }
+
+    .file-name {
+      margin-top: 10px;
+      font-size: 14px;
+      color: #555;
+    }
+
+    .btn {
+      margin-top: 10px;
+      background-color: #27ae60;
+      color: white;
+      border: none;
+      padding: 10px 24px;
+      font-size: 15px;
+      font-weight: 500;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+
+    .btn:hover {
+      background-color: #1f8c4f;
+    }
+
+    details summary {
+      font-weight: bold;
+      cursor: pointer;
+      font-size: 16px;
+      margin-bottom: 10px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+    }
+
+    table, th, td {
+      border: 1px solid #ddd;
+    }
+
+    th, td {
+      padding: 8px 12px;
+      text-align: left;
+      font-size: 14px;
+    }
+
+    #tabelaDados {
+      max-height: 600px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+      padding: 5px;
+    }
+
+    #logEnvio {
+      max-height: 300px;
+      overflow-y: auto;
+      background: #f9f9f9;
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      font-family: monospace;
+      font-size: 14px;
+    }
+
+    th {
+      background-color: #f2f2f2;
+    }
+  </style>
+</head>
+<body>
+<div class="content">
+
+  <!-- TOPO -->
+  <div class="section-block top-container">
+    <div class="header-icon">
+      <i class="fas fa-comments"></i> <i class="fas fa-paper-plane"></i>
+    </div>
+    <h1>Envio de Mensagens via WhatsApp</h1>
+    <div class="subtitle">Disparar mensagens em massa IDARON</div>
+  </div>
+
+  <!-- UPLOAD + FILTRO -->
+  <div class="section-block upload-section">
+    <h2><i class="fas fa-file-upload"></i> Carregar Arquivo</h2>
+    <p>Envie sua planilha (.csv, .xlsx ou .html)</p>
+
+    <div class="radio-group">
+      <label><input type="radio" name="filtro" value="continuar" checked> Continuar de uma lista anterior</label>
+      <label><input type="radio" name="filtro" value="sim"> Para quem já declarou a campanha atual</label>
+      <label><input type="radio" name="filtro" value="nao"> Para quem NÃO declarou a campanha atual</label>
+      <label style="margin-top: 15px;">
+        <input type="checkbox" id="agruparCheckbox" checked> Deseja agrupar os contatos?
+      </label>
+    </div>
+
+    <label for="fileInput" class="custom-file-upload"><i class="fas fa-folder-open"></i> Escolher Arquivo</label>
+    <input type="file" id="fileInput" accept=".csv, .xlsx, .html" />
+    <div id="fileName" class="file-name">Nenhum arquivo selecionado</div>
+
+    <button class="btn" onclick="enviarArquivo()">Carregar</button>
+  </div>
+
+  <!-- TABELA DE DADOS -->
+  <div class="section-block">
+    <details>
+      <summary><i class="fas fa-table"></i> Visualizar dados tratados</summary>
+      <div id="tabelaDados"></div>
+    </details>
+  </div>
+
+  <!-- CONFIGURAÇÕES DE ENVIO -->
+  <div class="section-block">
+    <h2><i class="fas fa-cog"></i> Configurações de Envio</h2>
+
+    <p style="margin-bottom: 10px; font-size: 14px; color: #555;">
+      <i class="fas fa-info-circle"></i> Defina o tempo de intervalo entre os envios automáticos para evitar bloqueios.
+    </p>
+
+    <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px;">
+      <div style="flex: 1;">
+        <label for="tempoMin">Tempo mínimo entre envios (segundos)</label><br>
+        <input type="number" id="tempoMin" value="10" min="1" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ccc;">
+      </div>
+      <div style="flex: 1;">
+        <label for="tempoMax">Tempo máximo entre envios (segundos)</label><br>
+        <input type="number" id="tempoMax" value="15" min="1" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ccc;">
+      </div>
+    </div>
+
+    <details>
+      <summary><i class="fas fa-envelope"></i> Editar Mensagem Personalizada</summary>
+      <textarea id="mensagemTexto" rows="10" style="width: 100%; margin-top: 10px; padding: 10px; font-size: 14px; border-radius: 6px; border: 1px solid #ccc; resize: vertical;">
+Olá, tudo bem? 😊 Esta mensagem é da IDARON de São Miguel do Guaporé.
+
+ATENÇÃO, PRODUTOR! 🚜🐂🌾
+
+📢 Aviso Importante:
+A primeira *Campanha de Declaração de Rebanhos de 2025* começa no dia *01 de maio* e vai até o *dia 31 de maio*.
+
+Pedimos que *realize sua declaração* dentro do prazo para evitar pendências.
+
+Você pode fazer a declaração de duas formas:
+✅ *Presencialmente* na unidade da IDARON mais próxima;
+✅ *Online* pelo site:
+🔗 www.idaron.ro.gov.br
+
+Conte com a IDARON! Estamos à disposição para ajudar. 😊
+
+O número -&numero está cadastrado na IDARON para contato com -&nome.
+
+Se você não é ele(a)(s) ou responde por ele(a)(s), por favor, nos avise para que possamos retirar seu contato de nossa base de dados. Nos perdoe pelo incômodo e tenha um bom dia.
+      </textarea>
+    </details>
+
+    <button class="btn" style="margin-top: 20px;" onclick="iniciarEnvio()">Iniciar envio de mensagens</button>
+  </div>
+
+  <!-- LOG DE ENVIO -->
+  <div class="section-block">
+    <h2><i class="fas fa-clipboard-list"></i> Log de Envio</h2>
+    <div id="logEnvio"></div>
+  </div>
+
+  <!-- RESUMO DA CAMPANHA -->
+  <div class="section-block">
+    <h2><i class="fas fa-chart-pie"></i> Resumo da Campanha</h2>
+    <div id="resumoEstatisticas" style="font-size: 15px; margin-top: 10px;">
+      <p>Carregando estatísticas...</p>
+    </div>
+  </div>
+  
+  <div class="section-block" style="text-align: center;">
+    <button class="btn" onclick="baixarPlanilha()">
+      <i class="fas fa-download"></i> Baixar Planilha Atualizada
+    </button>
+  </div>
+
+</div>
+
+<script>
+  const fileInput = document.getElementById('fileInput');
+  const fileNameDisplay = document.getElementById('fileName');
+
+  fileInput.addEventListener('change', () => {
+    fileNameDisplay.textContent = fileInput.files[0]?.name || 'Nenhum arquivo selecionado';
+  });
+
+  function enviarArquivo() {
+    const file = fileInput.files[0];
+    const filtro = document.querySelector('input[name="filtro"]:checked').value;
+    const agrupar = document.getElementById("agruparCheckbox").checked;
+
+    if (!file) {
+      alert('Selecione um arquivo antes de continuar.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function () {
+      const base64Data = reader.result;
+      window.pywebview.api.carregar_arquivo(file.name, base64Data).then(resp => {
+        alert(resp);
+        window.pywebview.api.tratar_dados(filtro, agrupar).then(() => {
+          window.pywebview.api.obter_dados_tratados().then(html => {
+            document.getElementById("tabelaDados").innerHTML = html;
+            atualizarResumo();
+          });
+        });
+      });
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function iniciarEnvio() {
+    const tempoMin = parseInt(document.getElementById("tempoMin").value);
+    const tempoMax = parseInt(document.getElementById("tempoMax").value);
+    const mensagem = document.getElementById("mensagemTexto").value;
+
+    if (tempoMax < tempoMin) {
+      alert("O tempo máximo deve ser maior ou igual ao tempo mínimo.");
+      return;
+    }
+
+    clearLogs();
+    window.pywebview.api.iniciar_whatsapp().then(() => {
+      window.pywebview.api.enviar_mensagens(tempoMin, tempoMax, mensagem).then(resp => {
+        adicionarLog(resp);
+      });
+    });
+  }
+
+  function adicionarLog(mensagem, id = null) {
+    const logDiv = document.getElementById("logEnvio");
+    let p;
+
+    if (id) {
+      p = document.getElementById(id);
+      if (!p) {
+        p = document.createElement("p");
+        p.id = id;
+        logDiv.appendChild(p);
+      }
+    } else {
+      p = document.createElement("p");
+      logDiv.appendChild(p);
+    }
+
+    p.textContent = mensagem;
+    logDiv.scrollTop = logDiv.scrollHeight;
+    atualizarResumo();
+  }
+
+  function clearLogs() {
+    const logDiv = document.getElementById("logEnvio");
+    logDiv.innerHTML = "";
+  }
+
+  function clearDelayLogs() {
+    const logDiv = document.getElementById("logEnvio");
+    const children = Array.from(logDiv.children);
+    children.forEach(child => {
+      if (child.id?.startsWith("log_delay_")) {
+        logDiv.removeChild(child);
+      }
+    });
+  }
+
+  function atualizarResumo() {
+    window.pywebview.api.obter_estatisticas().then(data => {
+      if (data.erro) {
+        document.getElementById("resumoEstatisticas").innerHTML = "<p>Erro ao calcular estatísticas.</p>";
+        return;
+      }
+
+      document.getElementById("resumoEstatisticas").innerHTML = `
+        <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+          <tr style="background: #f2f2f2;">
+            <th>Status</th><th>Quantidade</th><th>Percentual</th>
+          </tr>
+          <tr>
+            <td>Fila de Envio</td><td>${data.fila.qtd}</td><td>${data.fila.perc}</td>
+          </tr>
+          <tr>
+            <td>Enviados</td><td>${data.enviados.qtd}</td><td>${data.enviados.perc}</td>
+          </tr>
+          <tr>
+            <td>Inválidos</td><td>${data.invalidos.qtd}</td><td>${data.invalidos.perc}</td>
+          </tr>
+          <tr>
+            <td><strong>Total</strong></td><td><strong>${data.total}</strong></td><td><strong>100%</strong></td>
+          </tr>
+        </table>
+      `;
+    });
+  }
+
+  function baixarPlanilha() {
+    window.pywebview.api.baixar_planilha().then(mensagem => {
+      alert(mensagem);
+    });
+  }
+ 
+window.adicionarLog = adicionarLog;
+</script>
+</body>
+</html>
