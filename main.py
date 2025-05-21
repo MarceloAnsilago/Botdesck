@@ -107,16 +107,7 @@ class API:
             return resumo
         except Exception as e:
             return {"erro": str(e)}
-    # def iniciar_whatsapp(self):
-    #     options = Options()
-    #     options.add_argument('--ignore-certificate-errors')
-    #     options.add_argument('--ignore-ssl-errors')
-    #     self.driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-    #     self.driver.get('https://web.whatsapp.com')
-    #     while len(self.driver.find_elements(By.ID, 'side')) < 1:
-    #         time.sleep(1)
-    #     self._log_frontend("WhatsApp Web está pronto para envio.")
-    #     return "WhatsApp Web pronto para envio."
+
     def iniciar_whatsapp(self):
    
 
@@ -137,12 +128,25 @@ class API:
 
         self._log_frontend("WhatsApp Web está pronto para envio.")
         return "WhatsApp Web pronto para envio."
+   
+    def _log_frontend(self, mensagem, log_id=None):
+            try:
+                if log_id:
+                    js_code = f"window.adicionarLog({json.dumps(mensagem)}, {json.dumps(log_id)})"
+                else:
+                    js_code = f"window.adicionarLog({json.dumps(mensagem)})"
+                webview.windows[0].evaluate_js(js_code)
+            except Exception as e:
+                print(f"[LOG ERRO] Falha ao enviar log para o frontend: {e}")
 
     def enviar_mensagens(self, tempo_min, tempo_max, mensagem_template):
-    
         def send():
-            # Limpa os logs antigos
+            print("[DEBUG] Iniciando envio de mensagens...")
             webview.windows[0].evaluate_js("clearLogs()")
+
+            if self.df is None or self.df.empty:
+                self._log_frontend("Nenhum dado disponível para envio.")
+                return
 
             for index, row in self.df[self.df['Status'] == 'Fila de envio'].iterrows():
                 webview.windows[0].evaluate_js("clearLogs()")
@@ -156,62 +160,61 @@ class API:
                 if sucesso:
                     self.df.at[index, 'Status'] = 'Enviado'
                     self._log_frontend(f"Mensagem enviada para {nome}")
+
+                    delay = random.randint(tempo_min, tempo_max)
+                    log_id = f"log_delay_{index}"
+
+                    webview.windows[0].evaluate_js(f"""
+                        var el = document.createElement('p');
+                        el.id = {json.dumps(log_id)};
+                        el.style.fontFamily = 'monospace';
+                        el.textContent = 'Próximo envio em {delay} segundos...';
+                        document.getElementById('logEnvio').appendChild(el);
+                        document.getElementById('logEnvio').scrollTop = document.getElementById('logEnvio').scrollHeight;
+                    """)
+
+                    for i in range(delay, 0, -1):
+                        webview.windows[0].evaluate_js(
+                            f"document.getElementById({json.dumps(log_id)}).textContent = 'Próximo envio em {i} segundos...';"
+                        )
+                        time.sleep(1)
+
+                    webview.windows[0].evaluate_js("clearDelayLogs()")
+
                 else:
                     self.df.at[index, 'Status'] = 'Número inválido'
-                    self._log_frontend(f"Falha ao enviar para {nome} ({numero})")
+                    self._log_frontend(f"⚠️ Falha ao enviar para {nome} ({numero}) — número inválido.")
+                    self._log_frontend("⏭️ Pulando para o próximo contato...")
 
                 self.df.to_excel('BancoProd.xlsx', index=False)
 
-        
-                delay = random.randint(tempo_min, tempo_max)
-                log_id = f"log_delay_{index}"
-
-                # Cria o elemento do log na primeira vez
-                webview.windows[0].evaluate_js(f"""
-                    var el = document.createElement('p');
-                    el.id = {json.dumps(log_id)};
-                    el.style.fontFamily = 'monospace';
-                    el.textContent = 'Próximo envio em {delay} segundos...';
-                    document.getElementById('logEnvio').appendChild(el);
-                    document.getElementById('logEnvio').scrollTop = document.getElementById('logEnvio').scrollHeight;
-                """)
-
-                # Atualiza o mesmo elemento com a contagem regressiva
-                for i in range(delay, 0, -1):
-                    webview.windows[0].evaluate_js(
-                        f"document.getElementById({json.dumps(log_id)}).textContent = 'Próximo envio em {i} segundos...';"
-                    )
-                    time.sleep(1)
-                webview.windows[0].evaluate_js("clearDelayLogs()")
         Thread(target=send).start()
         return "Envio iniciado."
-    def _log_frontend(self, mensagem, log_id=None):
-        try:
-            if log_id:
-                js_code = f"window.adicionarLog({json.dumps(mensagem)}, {json.dumps(log_id)})"
-            else:
-                js_code = f"window.adicionarLog({json.dumps(mensagem)})"
-            webview.windows[0].evaluate_js(js_code)
-        except Exception as e:
-            print(f"[LOG ERRO] Falha ao enviar log para o frontend: {e}")
 
-    def _enviar(self, numero, mensagem, tentativa=1):
+   
+    def _enviar(self, numero, mensagem):
         try:
+            numero = numero.replace(" ", "")
             mensagem = urllib.parse.quote(mensagem)
             self.driver.get(f"https://web.whatsapp.com/send?phone={numero}&text={mensagem}")
-            WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.XPATH, '//div[@contenteditable="true"]')))
-            time.sleep(2)
-            botao_enviar = WebDriverWait(self.driver, 10).until(
+
+            # Aguarda até 8 segundos para encontrar o campo de digitação
+            WebDriverWait(self.driver, 3).until(
+                EC.presence_of_element_located((By.XPATH, '//div[@contenteditable="true"]'))
+            )
+
+            time.sleep(1)
+            botao_enviar = WebDriverWait(self.driver, 5).until(
                 EC.element_to_be_clickable((By.XPATH, '//span[@data-icon="send"]'))
             )
             botao_enviar.click()
-            time.sleep(2)
+            time.sleep(1)
             return True
+
         except Exception as e:
-            print(f"[ERRO] Falha ao enviar para {numero}: {e}")
-            if tentativa == 1:
-                return self._enviar(numero, mensagem, tentativa=2)
+            print(f"[ERRO] Número inválido ou falha ao enviar para {numero}: {e}")
             return False
+
 
 
     def baixar_planilha(self):
