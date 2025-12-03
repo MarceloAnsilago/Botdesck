@@ -1,0 +1,1009 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <title>Envio de Mensagens • WhatsApp Style</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --whatsapp-bg: #f5f9fa;
+      --whatsapp-card: #ffffff;
+      --whatsapp-panel: #edf4f7;
+      --accent: #25d366;
+      --accent-dark: #1ab957;
+      --text-light: #0f2f3f;
+      --text-muted: #60707b;
+      --border-muted: rgba(15, 47, 63, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+      background: var(--whatsapp-bg);
+      color: var(--text-light);
+      min-height: 100vh;
+    }
+
+    .app-shell {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    header.app-nav {
+      background: #ffffff;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+      border-bottom: 1px solid var(--border-muted);
+      box-shadow: 0 10px 25px rgba(15, 47, 63, 0.08);
+    }
+
+    header.app-nav .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 600;
+    }
+
+    header.app-nav .brand .icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 12px;
+      background: rgba(37, 211, 102, 0.15);
+      display: grid;
+      place-items: center;
+      font-size: 20px;
+    }
+
+    header.app-nav nav {
+      display: flex;
+      gap: 12px;
+    }
+
+    header.app-nav button.nav-link {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-light);
+      padding: 8px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 0.2s, border 0.2s, color 0.2s;
+    }
+
+    header.app-nav button.nav-link.active {
+      background: rgba(37, 211, 102, 0.12);
+      border: 1px solid rgba(37, 211, 102, 0.3);
+      color: var(--text-light);
+    }
+
+    main {
+      flex: 1;
+      background: var(--whatsapp-bg);
+      padding: 36px 24px 40px;
+    }
+
+    .page {
+      display: none;
+      max-width: 900px;
+      margin: 0 auto;
+      animation: fadeIn 0.4s ease;
+    }
+
+    .page.active {
+      display: block;
+    }
+
+    .page-card {
+      background: var(--whatsapp-card);
+      padding: 24px;
+      border-radius: 18px;
+      box-shadow: 0 10px 40px rgba(15, 47, 63, 0.08);
+      border: 1px solid var(--border-muted);
+    }
+
+    .page-card h2 {
+      margin-top: 0;
+      color: var(--text-light);
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    input[type="file"],
+    input[type="number"],
+    textarea,
+    select {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border-muted);
+      background: rgba(255, 255, 255, 0.9);
+      color: var(--text-light);
+      font-size: 0.95rem;
+      font-family: inherit;
+    }
+
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+
+    button {
+      border: none;
+      border-radius: 999px;
+      padding: 10px 20px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: background 0.2s;
+      box-shadow: 0 10px 20px rgba(37, 211, 102, 0.3);
+    }
+
+    button.secondary {
+      background: #f5f9fa;
+      color: var(--text-light);
+      border: 1px solid var(--border-muted);
+      box-shadow: none;
+    }
+
+    button:hover {
+      background: var(--accent-dark);
+    }
+
+    .form-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    #tabela {
+      max-height: 360px;
+      overflow: auto;
+      margin-top: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border-muted);
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.9);
+      color: var(--text-light);
+    }
+
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 12px;
+    }
+
+    .donut-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin: 16px 0;
+    }
+
+    .donut-card {
+      background: var(--whatsapp-panel);
+      border: 1px solid var(--border-muted);
+      border-radius: 14px;
+      padding: 14px;
+      text-align: center;
+    }
+
+    .donut {
+      --donut-color: #25d366;
+      --donut-value: 0deg;
+      width: 110px;
+      height: 110px;
+      margin: 0 auto 10px;
+      border-radius: 50%;
+      background: conic-gradient(var(--donut-color) var(--donut-value), #e8f1f4 0);
+      position: relative;
+      display: grid;
+      place-items: center;
+    }
+
+    .donut::after {
+      content: "";
+      width: 68px;
+      height: 68px;
+      background: #fff;
+      border-radius: 50%;
+      position: absolute;
+    }
+
+    .donut span {
+      position: relative;
+      font-weight: 700;
+      color: var(--text-light);
+      z-index: 1;
+    }
+
+    .donut-label {
+      font-size: 0.95rem;
+      margin: 0;
+      color: var(--text-light);
+    }
+
+    .donut-meta {
+      margin: 4px 0 0;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    .contact-card {
+      padding: 14px 18px;
+      border-radius: 16px;
+      background: #fff;
+      color: var(--text-light);
+      border: 1px solid rgba(15, 47, 63, 0.08);
+      box-shadow: 0 12px 25px rgba(15, 47, 63, 0.12);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 140px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .contact-card::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(37, 211, 102, 0.08), transparent 60%);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .contact-card:hover::after {
+      opacity: 1;
+    }
+
+    .contact-card h4 {
+      margin: 0;
+      font-size: 0.95rem;
+      color: var(--text-light);
+    }
+
+    .contact-card .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(37, 211, 102, 0.4);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      background: rgba(37, 211, 102, 0.1);
+      color: var(--text-muted);
+    }
+
+    .contact-card .tel {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-light);
+    }
+
+    .contact-card .meta {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    .empty-table-msg {
+      padding: 20px;
+      background: rgba(15, 47, 63, 0.05);
+      border-radius: 12px;
+      border: 1px dashed var(--border-muted);
+      text-align: center;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    .selector-grid {
+      display: grid;
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .selector-row {
+      padding: 16px 18px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.95);
+      border: 1px solid var(--border-muted);
+      box-shadow: 0 12px 25px rgba(15, 47, 63, 0.08);
+    }
+
+    .selector-row .selector-meta h3 {
+      margin: 0;
+      font-size: 0.95rem;
+      color: var(--text-light);
+    }
+
+    .selector-row .selector-meta p {
+      margin: 4px 0 10px;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    .selector-row .selector-by,
+    .selector-row .selector-value {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border-muted);
+      font-size: 0.9rem;
+      font-family: inherit;
+      background: rgba(255, 255, 255, 0.9);
+      color: var(--text-light);
+    }
+
+    .selector-row textarea.selector-value {
+      resize: vertical;
+      min-height: 60px;
+    }
+
+    .selectors-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .empty-table-msg {
+      padding: 20px;
+      background: rgba(15, 47, 63, 0.05);
+      border-radius: 12px;
+      border: 1px dashed var(--border-muted);
+      text-align: center;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    pre#stats {
+      background: rgba(237, 244, 247, 0.9);
+      border-radius: 12px;
+      padding: 16px;
+      max-height: 220px;
+      overflow: auto;
+      color: var(--text-light);
+    }
+
+    #log {
+      max-height: 250px;
+      overflow: auto;
+      margin-top: 12px;
+      border-radius: 12px;
+      padding: 16px;
+      background: var(--whatsapp-panel);
+      border: 1px solid var(--border-muted);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    #log p {
+      margin: 0;
+      font-size: 0.9rem;
+      color: var(--text-light);
+      background: rgba(255, 255, 255, 0.6);
+      padding: 10px 14px;
+      border-radius: 12px;
+    }
+    #log p.countdown-log {
+      background: rgba(37, 211, 102, 0.1);
+      border: 1px solid rgba(37, 211, 102, 0.25);
+      color: var(--accent-dark);
+      font-weight: 600;
+    }
+
+    .page-footer {
+      margin-top: 12px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 768px) {
+      header.app-nav {
+        flex-direction: column;
+        height: auto;
+        gap: 10px;
+      }
+
+      header.app-nav nav {
+        flex-wrap: wrap;
+      }
+
+      .form-row {
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-nav">
+      <div class="brand">
+        <div class="icon">💬</div>
+        <div>
+          <div>Botdesk</div>
+          <small style="color: rgba(255,255,255,0.8); font-size:0.75rem;">envio inteligente</small>
+        </div>
+      </div>
+      <nav aria-label="Navegação principal">
+        <button class="nav-link active" data-target="upload">Carregar</button>
+        <button class="nav-link" data-target="tratamento">Tratar</button>
+        <button class="nav-link" data-target="whatsapp">WhatsApp</button>
+        <button class="nav-link" data-target="envio">Envio</button>
+        <button class="nav-link" data-target="stats">Estatísticas</button>
+        <button class="nav-link" data-target="config">Configurações</button>
+      </nav>
+    </header>
+
+    <main>
+      <section class="page active" data-page="upload">
+        <div class="page-card">
+          <h2>1 • Carregar arquivo</h2>
+          <p style="color: var(--text-muted);">Envie planilhas (.csv, .xlsx) ou .html com os contatos.</p>
+          <div class="controls">
+            <input type="file" id="fileInput" accept=".csv,.xlsx,.html" />
+            <button onclick="upload()">Enviar</button>
+          </div>
+          <div id="uploadMsg" class="page-footer"></div>
+        </div>
+      </section>
+
+      <section class="page" data-page="tratamento">
+        <div class="page-card">
+          <h2>2 • Tratar dados</h2>
+          <div class="form-row">
+            <div style="flex: 1;">
+              <label for="filtro">Filtro</label>
+              <select id="filtro">
+                <option value="">(nenhum)</option>
+                <option value="sim">Dec. Rebanho = 1</option>
+                <option value="nao">Dec. Rebanho = 0</option>
+                <option value="-1">Dec. Rebanho = -1 (Inadimplentes)</option>
+                <option value="continuar">Continuar</option>
+              </select>
+            </div>
+            <div style="flex: 1;">
+              <label><input type="checkbox" id="agrupar" checked /> Agrupar por telefone</label>
+            </div>
+          </div>
+          <button onclick="tratar()">Aplicar</button>
+          <div id="tratarMsg" class="page-footer"></div>
+          <h3 style="margin-top: 24px;">Pré-visualização</h3>
+          <div id="tabela">Carregue/Trate dados para visualizar...</div>
+        </div>
+      </section>
+
+      <section class="page" data-page="whatsapp">
+        <div class="page-card">
+          <h2>3 • WhatsApp Web</h2>
+          <p style="color: var(--text-muted);">Abra uma sessão do WhatsApp Web para autenticar o envio.</p>
+          <button onclick="startWhatsapp()">Iniciar WhatsApp Web</button>
+          <div id="waMsg" class="page-footer"></div>
+        </div>
+      </section>
+
+      <section class="page" data-page="envio">
+        <div class="page-card">
+          <h2>4 • Envio de mensagens</h2>
+          <div class="form-row">
+            <div style="flex: 1;">
+              <label for="tempoMin"><strong>Tempo mínimo (s)</strong></label>
+              <small style="display:block;color:var(--text-muted);margin-top:2px;">Será sorteado um intervalo entre mínimo e máximo para cada envio.</small>
+              <input type="number" id="tempoMin" value="25" min="1" />
+            </div>
+            <div style="flex: 1;">
+              <label for="tempoMax"><strong>Tempo máximo (s)</strong></label>
+              <small style="display:block;color:var(--text-muted);margin-top:2px;">Quanto maior o máximo, mais espaçado o disparo fica.</small>
+              <input type="number" id="tempoMax" value="37" min="1" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div style="flex: 1;">
+              <label for="mensagensMin">Mensagens antes da pausa (mínimo)</label>
+              <small style="display:block;color:var(--text-muted);margin-top:2px;">Será escolhido um lote entre o mínimo e o máximo antes de pausar.</small>
+              <input type="number" id="mensagensMin" value="30" min="1" />
+            </div>
+            <div style="flex: 1;">
+              <label for="mensagensMax">Mensagens antes da pausa (máximo)</label>
+              <small style="display:block;color:var(--text-muted);margin-top:2px;">Use para limitar o tamanho máximo do lote.</small>
+              <input type="number" id="mensagensMax" value="40" min="1" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div style="flex: 1;">
+              <label for="minutosMin"><strong>Pausa mínima (min)</strong></label>
+              <small style="display:block;color:var(--text-muted);margin-top:2px;">Será escolhido um tempo de pausa entre o mínimo e o máximo.</small>
+              <input type="number" id="minutosMin" value="23" min="0" />
+            </div>
+            <div style="flex: 1;">
+              <label for="minutosMax"><strong>Pausa máxima (min)</strong></label>
+              <small style="display:block;color:var(--text-muted);margin-top:2px;">Descanso sorteado para reduzir risco de bloqueio.</small>
+              <input type="number" id="minutosMax" value="39" min="0" />
+            </div>
+          </div>
+          <label for="mensagem">Mensagem (use -&nome e -&numero)</label>
+          <textarea id="mensagem">Olá -&nome, este é um contato para -&numero.</textarea>
+          <div class="controls" style="margin-top: 12px;">
+            <button onclick="startSend()">Iniciar envio</button>
+            <button class="secondary" onclick="stopSend()">Parar envio</button>
+            <button class="secondary" onclick="downloadExcel()">Baixar Excel</button>
+          </div>
+          <div id="loteInfo" class="page-footer" style="font-size:0.9rem;color:var(--text-muted);"></div>
+          <div id="log"></div>
+        </div>
+      </section>
+
+      <section class="page" data-page="stats">
+        <div class="page-card">
+          <h2>5 • Estatísticas</h2>
+          <p style="color: var(--text-muted);">Resumo da fila e desempenho.</p>
+          <div id="statsDonuts" class="donut-grid"></div>
+          <div class="controls">
+            <button onclick="refreshStats()">Atualizar</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="page" data-page="config">
+        <div class="page-card">
+          <h2>6 • Configurações</h2>
+          <p style="color: var(--text-muted);">Atualize os seletores utilizados pelo Selenium para manter o WhatsApp operacional.</p>
+          <div class="selector-grid" id="selectorsList"></div>
+          <div class="selectors-actions">
+            <button id="saveSelectorsBtn">Salvar seletores</button>
+            <button id="resetSelectorsBtn" class="secondary">Restaurar padrão</button>
+          </div>
+          <div id="selectorsMsg" class="page-footer"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const logDiv = document.getElementById('log');
+    let countdownElement = null;
+    const countdownPrefixes = ["Próximo envio em", "Pausa ativa - voltando em"];
+    const navLinks = document.querySelectorAll('.nav-link');
+    const pages = document.querySelectorAll('.page');
+    const selectorsList = document.getElementById('selectorsList');
+    const selectorsMsg = document.getElementById('selectorsMsg');
+    const selectorsSaveBtn = document.getElementById('saveSelectorsBtn');
+    const selectorsResetBtn = document.getElementById('resetSelectorsBtn');
+    const statsDonuts = document.getElementById('statsDonuts');
+    const loteInfo = document.getElementById('loteInfo');
+    let lotePlanejado = null;
+    let loteRestante = null;
+    let pausaPlanejada = null;
+    const selectorFields = [
+      {
+        key: "chat_input",
+        label: "Campo de mensagem",
+        desc: "Área editável do WhatsApp onde a mensagem é digitada antes do envio."
+      },
+      {
+        key: "send_button",
+        label: "Botão enviar",
+        desc: "Ícone que dispara a mensagem após digitar o texto."
+      },
+      {
+        key: "sidebar",
+        label: "Barra lateral",
+        desc: "Componente que indica quando o WhatsApp Web terminou de carregar."
+      }
+    ];
+    const selectorOptions = ["XPATH", "CSS_SELECTOR", "ID", "CLASS_NAME", "NAME", "TAG_NAME"];
+    const fieldLabels = selectorFields.reduce((acc, field) => {
+      acc[field.key] = field.label;
+      return acc;
+    }, {});
+
+    function randBetween(min, max) {
+      const mi = Number(min) || 0;
+      const ma = Number(max) || mi;
+      return Math.floor(Math.random() * (ma - mi + 1)) + mi;
+    }
+
+    function updateLoteInfoText() {
+      if (!loteInfo) return;
+      const tempoMin = document.getElementById('tempoMin')?.value || 0;
+      const tempoMax = document.getElementById('tempoMax')?.value || 0;
+      const minMsgs = document.getElementById('mensagensMin')?.value || 0;
+      const maxMsgs = document.getElementById('mensagensMax')?.value || 0;
+      const minPausa = document.getElementById('minutosMin')?.value || 0;
+      const maxPausa = document.getElementById('minutosMax')?.value || 0;
+
+      if (typeof loteRestante === "number" && typeof lotePlanejado === "number") {
+        loteInfo.textContent = `Lote sorteado: ${lotePlanejado} mensagens (restam ${loteRestante}). Pausa planejada: ${pausaPlanejada} min. Intervalo entre envios: ${tempoMin}-${tempoMax}s.`;
+      } else {
+        loteInfo.textContent = `Serão sorteados intervalos entre ${tempoMin}-${tempoMax}s, um lote entre ${minMsgs}-${maxMsgs} mensagens e uma pausa entre ${minPausa}-${maxPausa} min.`;
+      }
+    }
+
+    function setActivePage(id) {
+      pages.forEach(page => {
+        page.classList.toggle('active', page.dataset.page === id);
+      });
+      navLinks.forEach(link => {
+        link.classList.toggle('active', link.dataset.target === id);
+      });
+    }
+
+    navLinks.forEach(link => {
+      link.addEventListener('click', () => setActivePage(link.dataset.target));
+    });
+
+    function appendLog(msg) {
+      if (!logDiv || !msg) {
+        return;
+      }
+
+      const isCountdownMessage = countdownPrefixes.some(prefix => msg.startsWith(prefix));
+      if (isCountdownMessage) {
+        if (!countdownElement) {
+          countdownElement = document.createElement('p');
+          countdownElement.className = 'countdown-log';
+          logDiv.appendChild(countdownElement);
+        }
+        countdownElement.textContent = msg;
+        logDiv.scrollTop = logDiv.scrollHeight;
+        return;
+      }
+
+      countdownElement = null;
+      const p = document.createElement('p');
+      p.textContent = msg;
+      logDiv.appendChild(p);
+      logDiv.scrollTop = logDiv.scrollHeight;
+
+      if (msg.includes("Mensagem enviada") && typeof loteRestante === "number" && loteRestante > 0) {
+        loteRestante = Math.max(0, loteRestante - 1);
+        updateLoteInfoText();
+      }
+    }
+
+    function upload() {
+      const f = document.getElementById('fileInput').files[0];
+      if (!f) {
+        alert("Selecione um arquivo.");
+        return;
+      }
+      const fd = new FormData();
+      fd.append("file", f);
+      fetch("/upload", { method: "POST", body: fd })
+        .then(r => r.json())
+        .then(j => {
+          document.getElementById('uploadMsg').textContent = j.msg || JSON.stringify(j);
+          refreshTable();
+        })
+        .catch(e => alert(e));
+    }
+
+    function tratar() {
+      const filtro = document.getElementById('filtro').value;
+      const agrupar = document.getElementById('agrupar').checked;
+      fetch("/tratar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filtro, agrupar })
+      })
+        .then(r => r.json())
+        .then(j => {
+          document.getElementById('tratarMsg').textContent = j.msg || JSON.stringify(j);
+          refreshTable();
+          refreshStats();
+        });
+    }
+
+    function refreshTable() {
+      fetch("/tabela").then(r => r.text()).then(html => {
+        renderTablePreview(html);
+      });
+    }
+
+    function renderDonut(label, value, total, color) {
+      const safeTotal = total > 0 ? total : 0;
+      const percent = safeTotal ? Math.min(100, (value / safeTotal) * 100) : 0;
+      const deg = percent * 3.6;
+      return `
+        <div class="donut-card">
+          <div class="donut" style="--donut-color:${color};--donut-value:${deg}deg;">
+            <span>${percent.toFixed(1)}%</span>
+          </div>
+          <p class="donut-label">${label}</p>
+          <p class="donut-meta">${value} de ${safeTotal || 0}</p>
+        </div>
+      `;
+    }
+
+    function renderTablePreview(html) {
+      const container = document.getElementById('tabela');
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, "text/html");
+      const table = doc.querySelector("table");
+      if (!table) {
+        container.innerHTML = '<div class="empty-table-msg">Nenhum dado disponível no momento.</div>';
+        return;
+      }
+
+      const headers = Array.from(table.querySelectorAll("thead th")).map(th => th.textContent.trim());
+      const rows = Array.from(table.querySelectorAll("tbody tr"));
+      if (!rows.length) {
+        container.innerHTML = '<div class="empty-table-msg">Nenhum dado disponível no momento.</div>';
+        return;
+      }
+
+      const grid = document.createElement("div");
+      grid.className = "cards-grid";
+
+      rows.forEach(row => {
+        const cells = Array.from(row.querySelectorAll("td")).map(td => td.textContent.trim());
+        const card = document.createElement("article");
+        card.className = "contact-card";
+
+        const status = cells[headers.indexOf("Status")] || cells[0] || "-";
+        const telefone = cells[headers.indexOf("Telefone")] || "-";
+        const nome = cells[headers.indexOf("Nome")] || "-";
+        const dec = cells[headers.indexOf("Dec. Rebanho")] || "";
+
+        const chip = document.createElement("span");
+        chip.className = "chip";
+        chip.textContent = status;
+
+        const tel = document.createElement("div");
+        tel.className = "tel";
+        tel.textContent = telefone;
+
+        const name = document.createElement("h4");
+        name.textContent = nome;
+
+        const meta = document.createElement("p");
+        meta.className = "meta";
+        meta.textContent = dec ? `Declínio de rebanho: ${dec}` : "Sem informações adicionais.";
+
+        card.appendChild(chip);
+        card.appendChild(name);
+        card.appendChild(tel);
+        card.appendChild(meta);
+        grid.appendChild(card);
+      });
+
+      container.innerHTML = "";
+      container.appendChild(grid);
+    }
+
+    function startWhatsapp() {
+      fetch("/start_whatsapp", { method: "POST" })
+        .then(r => r.json()).then(j => {
+          document.getElementById('waMsg').textContent = j.msg || JSON.stringify(j);
+        });
+    }
+
+    function startSend() {
+      const tempo_min = parseInt(document.getElementById('tempoMin').value || "25");
+      const tempo_max = parseInt(document.getElementById('tempoMax').value || "37");
+      const mensagens_min = parseInt(document.getElementById('mensagensMin').value || "30");
+      const mensagens_max = parseInt(document.getElementById('mensagensMax').value || "40");
+      const minutos_min = parseInt(document.getElementById('minutosMin').value || "23");
+      const minutos_max = parseInt(document.getElementById('minutosMax').value || "39");
+      const mensagem_template = document.getElementById('mensagem').value;
+
+      lotePlanejado = randBetween(mensagens_min, mensagens_max);
+      loteRestante = lotePlanejado;
+      pausaPlanejada = randBetween(minutos_min, minutos_max);
+      updateLoteInfoText();
+
+      fetch("/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tempo_min,
+          tempo_max,
+          mensagem_template,
+          mensagens_min,
+          mensagens_max,
+          minutos_min,
+          minutos_max
+        })
+      })
+        .then(r => r.json()).then(j => {
+          appendLog(j.msg || JSON.stringify(j));
+        });
+    }
+
+    function stopSend() {
+      fetch("/stop", { method: "POST" })
+        .then(r => r.json()).then(j => appendLog(j.msg || JSON.stringify(j)));
+    }
+
+    function refreshStats() {
+      fetch("/stats")
+        .then(r => r.json())
+        .then(j => {
+          if (!statsDonuts) return;
+          const total = j?.total || 0;
+          const enviados = j?.enviados?.qtd || 0;
+          const fila = j?.fila?.qtd || 0;
+          const invalidos = j?.invalidos?.qtd || 0;
+          statsDonuts.innerHTML = [
+            renderDonut("Enviados", enviados, total, "#25d366"),
+            renderDonut("Fila", fila, total, "#f4b400"),
+            renderDonut("Inválidos", invalidos, total, "#ff6b6b"),
+          ].join("");
+        });
+    }
+
+    function downloadExcel() {
+      window.location.href = "/download";
+    }
+
+    function renderSelectorRows() {
+      if (!selectorsList) {
+        return;
+      }
+      const markup = selectorFields.map(field => `
+        <article class="selector-row" data-key="${field.key}">
+          <div class="selector-meta">
+            <h3>${field.label}</h3>
+            <p>${field.desc}</p>
+          </div>
+          <div class="form-row">
+            <div style="min-width: 150px;">
+              <label>Tipo</label>
+              <select class="selector-by">
+                ${selectorOptions.map(option => `<option value="${option}">${option.replace('_', ' ')}</option>`).join('')}
+              </select>
+            </div>
+            <div style="flex: 1;">
+              <label>Valor</label>
+              <textarea class="selector-value" rows="2"></textarea>
+            </div>
+          </div>
+        </article>
+      `).join('');
+      selectorsList.innerHTML = markup;
+    }
+
+    function populateSelectors() {
+      if (!selectorsList) {
+        return;
+      }
+      fetch("/selectors")
+        .then(r => r.json())
+        .then(data => {
+          document.querySelectorAll('.selector-row').forEach(row => {
+            const key = row.dataset.key;
+            const entry = data[key] || {};
+            const byInput = row.querySelector('.selector-by');
+            const valueInput = row.querySelector('.selector-value');
+            if (byInput) {
+              byInput.value = entry.by || selectorOptions[0];
+            }
+            if (valueInput) {
+              valueInput.value = entry.value || "";
+            }
+          });
+        });
+    }
+
+    function collectSelectorPayload() {
+      if (!selectorsMsg) {
+        return null;
+      }
+      const payload = {};
+      let valid = true;
+      document.querySelectorAll('.selector-row').forEach(row => {
+        const key = row.dataset.key;
+        const byInput = row.querySelector('.selector-by');
+        const valueInput = row.querySelector('.selector-value');
+        const value = valueInput?.value.trim() || "";
+        if (!value) {
+          const label = fieldLabels[key] || key;
+          selectorsMsg.textContent = `Informe o valor para ${label}.`;
+          valid = false;
+          return;
+        }
+        payload[key] = {
+          by: byInput?.value || selectorOptions[0],
+          value,
+        };
+      });
+      return valid ? payload : null;
+    }
+
+    function saveSelectors() {
+      if (!selectorsMsg) {
+        return;
+      }
+      selectorsMsg.textContent = "Salvando seletores...";
+      const payload = collectSelectorPayload();
+      if (!payload) {
+        return;
+      }
+      fetch("/selectors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      })
+        .then(r => r.json())
+        .then(resp => {
+          selectorsMsg.textContent = resp.msg || "Seletores atualizados.";
+          if (resp.ok) {
+            setTimeout(populateSelectors, 200);
+          }
+        })
+        .catch(() => {
+          selectorsMsg.textContent = "Erro ao salvar seletores.";
+        });
+    }
+
+    function resetSelectors() {
+      if (!selectorsMsg) {
+        return;
+      }
+      selectorsMsg.textContent = "Restaurando seletores...";
+      fetch("/selectors/reset", { method: "POST" })
+        .then(r => r.json())
+        .then(resp => {
+          selectorsMsg.textContent = resp.msg || "Seletores restaurados.";
+          renderSelectorRows();
+          setTimeout(populateSelectors, 200);
+        })
+        .catch(() => {
+          selectorsMsg.textContent = "Erro ao restaurar seletores.";
+        });
+    }
+
+    const es = new EventSource("/stream");
+    es.onmessage = (e) => appendLog(e.data);
+
+    window.addEventListener('DOMContentLoaded', () => {
+      renderSelectorRows();
+      populateSelectors();
+      setActivePage('upload');
+      refreshStats();
+      selectorsSaveBtn?.addEventListener('click', saveSelectors);
+      selectorsResetBtn?.addEventListener('click', resetSelectors);
+      ['tempoMin','tempoMax','mensagensMin','mensagensMax','minutosMin','minutosMax'].forEach(id => {
+        const el = document.getElementById(id);
+        el?.addEventListener('input', () => {
+          lotePlanejado = null;
+          loteRestante = null;
+          pausaPlanejada = null;
+          updateLoteInfoText();
+        });
+      });
+      updateLoteInfoText();
+    });
+  </script>
+</body>
+</html>

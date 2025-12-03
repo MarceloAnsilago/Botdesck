@@ -69,12 +69,15 @@ class API:
             return df[["Status", "Nome", "Telefone", "Dec. Rebanho"]]
 
         try:
-            if filtro in ["sim", "nao"]:
+            if filtro in ["sim", "nao", "-1"]:
                 self.df = preprocess_dataframe(self.df)
+                dec_rebanho = pd.to_numeric(self.df["Dec. Rebanho"], errors="coerce")
                 if filtro == "sim":
-                    self.df = self.df[self.df["Dec. Rebanho"] == 1]
+                    self.df = self.df[dec_rebanho == 1]
                 elif filtro == "nao":
-                    self.df = self.df[self.df["Dec. Rebanho"] == 0]
+                    self.df = self.df[dec_rebanho == 0]
+                else:
+                    self.df = self.df[dec_rebanho == -1]
             elif filtro == "continuar":
                 if "Status" not in self.df.columns:
                     return "Arquivo não contém dados já tratados para continuar."

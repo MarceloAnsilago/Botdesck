@@ -1,0 +1,14 @@
+{
+  "chat_input": {
+    "by": "XPATH",
+    "value": "//*[@id=\"main\"]/footer/div[1]/div/span/div/div[2]/div/div[3]/div[1]/p"
+  },
+  "send_button": {
+    "by": "XPATH",
+    "value": "//*[@id=\"main\"]/footer/div[1]/div/span/div/div[2]/div/div[4]/div/span/div/div/div[1]/div[1]/span"
+  },
+  "sidebar": {
+    "by": "ID",
+    "value": "side"
+  }
+}

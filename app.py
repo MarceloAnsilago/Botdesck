@@ -1,0 +1,602 @@
+import os
+import time
+import json
+import base64
+import random
+import threading
+import queue
+from copy import deepcopy
+from io import BytesIO
+from typing import Optional, Tuple
+
+import pandas as pd
+from flask import Flask, render_template, request, jsonify, Response, send_file
+
+# ===== Selenium (WhatsApp Web) =====
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
+from webdriver_manager.chrome import ChromeDriverManager
+
+
+app = Flask(__name__)
+SELECTORS_FILE = os.path.join(app.root_path, "selectors.json")
+DEFAULT_SELECTORS = {
+    "chat_input": {"by": "XPATH", "value": '//*[@id="main"]/footer/div[1]/div/span/div/div[2]/div/div[3]/div[1]/p'},
+    "send_button": {"by": "XPATH", "value": '//*[@id="main"]/footer/div[1]/div/span/div/div[2]/div/div[4]/div/span/div/div/div[1]/div[1]/span'},
+    "sidebar": {"by": "ID", "value": "side"},
+}
+ALLOWED_BY = {"XPATH", "CSS_SELECTOR", "ID", "CLASS_NAME", "NAME", "TAG_NAME"}
+
+def load_selectors(force_default: bool = False):
+    base = deepcopy(DEFAULT_SELECTORS)
+    if force_default or not os.path.exists(SELECTORS_FILE):
+        return base
+
+    try:
+        with open(SELECTORS_FILE, "r", encoding="utf-8") as f:
+            stored = json.load(f)
+    except Exception:
+        return base
+
+    merged = {}
+    for key, default in base.items():
+        raw = stored.get(key, {})
+        by = raw.get("by", default["by"]).upper()
+        value = raw.get("value", default["value"])
+        if by not in ALLOWED_BY:
+            by = default["by"]
+        merged[key] = {
+            "by": by,
+            "value": value if value else default["value"],
+        }
+    return merged
+
+def persist_selectors():
+    try:
+        with open(SELECTORS_FILE, "w", encoding="utf-8") as f:
+            json.dump(SELECTORS, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        log(f"[WARN] Não foi possível salvar seletores: {e}")
+
+def resolve_selector(key: str) -> Tuple[str, str]:
+    selector = SELECTORS.get(key) or DEFAULT_SELECTORS.get(key)
+    if selector is None:
+        raise KeyError(f"Seletor desconhecido: {key}")
+    by_name = selector.get("by", "XPATH").upper()
+    value = selector.get("value", "")
+    if by_name not in ALLOWED_BY:
+        by_name = "XPATH"
+    return getattr(By, by_name), value
+
+SELECTORS = load_selectors()
+
+# ===== Estado global simples =====
+STATE = {
+    "df": None,                # pandas.DataFrame
+    "driver": None,            # selenium webdriver
+    "logs": queue.Queue(),     # fila de logs para SSE
+    "sending_thread": None,    # thread de envio
+    "stop_flag": False,        # para parar envio se necessário
+}
+
+
+# ============ Helpers ============
+def log(msg: str):
+    """Enfileira mensagens para o front (SSE)."""
+    try:
+        STATE["logs"].put_nowait(msg)
+    except Exception:
+        pass
+
+
+def df_to_visible_html(df: Optional[pd.DataFrame]) -> str:
+    if df is not None and not df.empty:
+        df_visivel = df.copy()
+        if "Dec. Rebanho" in df_visivel.columns:
+            df_visivel = df_visivel.drop(columns=["Dec. Rebanho"])
+        for col in df_visivel.columns:
+            df_visivel[col] = df_visivel[col].astype(str)
+        return df_visivel.to_html(index=False, escape=False)
+    return "<p>Nenhum dado disponível.</p>"
+
+
+def number_looks_invalid(driver: webdriver.Chrome) -> bool:
+    """Detecta mensagens típicas de número inválido no WhatsApp."""
+    text = driver.page_source.lower()
+    phrases = [
+        "número inválido",
+        "invalid phone number",
+        "não é possível enviar mensagens para este número",
+        "não é possível enviar mensagens",
+        "number invalid"
+    ]
+    return any(phrase in text for phrase in phrases)
+
+
+def wait_for_message_sent(driver: webdriver.Chrome, previous: int, timeout: int = 5) -> bool:
+    """Garante que um novo bubble de saída apareceu após clicar em enviar."""
+    try:
+        WebDriverWait(driver, timeout).until(
+            lambda d: len(d.find_elements(By.XPATH, "//div[contains(@class,'message-out')]")) > previous
+        )
+        return True
+    except TimeoutException:
+        return False
+
+
+def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    colunas = [
+        'Nome do Titular da Ficha de bovideos',
+        'Nome da Propriedade',
+        'Endereço da Prop.',
+        'Dec. Rebanho',
+        'Telefone 1',
+        'Telefone 2',
+        'Celular'
+    ]
+    for col in colunas:
+        if col not in df.columns:
+            raise ValueError(f"Coluna ausente: {col}")
+
+    df = df[colunas]
+    df = pd.melt(
+        df,
+        id_vars=colunas[:4],
+        value_vars=colunas[4:],
+        value_name='Telefone'
+    ).drop(columns=['variable'])
+
+    df['Nome'] = df.apply(
+        lambda row: f"{row[colunas[0]]} - {row[colunas[1]]} - {row[colunas[2]]}",
+        axis=1
+    )
+    df = df.drop(columns=colunas[:3])
+
+    # Normalização de telefone
+    df['Telefone'] = (
+        df['Telefone']
+        .astype(str)
+        .str.replace(r'[^0-9]', '', regex=True)
+        .str.zfill(10)
+    )
+    df = df[~df['Telefone'].str.match(r'^\d{6}0000$')]
+    df['Telefone'] = '+55' + df['Telefone']
+    df['Telefone'] = df['Telefone'].apply(
+        lambda telefone: telefone[:5] + telefone[6:] if len(telefone) == 15 else telefone
+    )
+    df['Telefone'] = df['Telefone'].str[:3] + ' ' + df['Telefone'].str[3:5] + ' ' + df['Telefone'].str[5:]
+    df["Status"] = "Fila de envio"
+    return df[["Status", "Nome", "Telefone", "Dec. Rebanho"]]
+
+
+def get_stats(df: Optional[pd.DataFrame]):
+    try:
+        if df is None or df.empty:
+            return {
+                "total": 0,
+                "fila": {"qtd": 0, "perc": "0%"},
+                "enviados": {"qtd": 0, "perc": "0%"},
+                "invalidos": {"qtd": 0, "perc": "0%"},
+            }
+
+        total = len(df)
+        if total == 0:
+            return {
+                "total": 0,
+                "fila": {"qtd": 0, "perc": "0%"},
+                "enviados": {"qtd": 0, "perc": "0%"},
+                "invalidos": {"qtd": 0, "perc": "0%"},
+            }
+
+        if "Status" in df.columns:
+            status_series = df["Status"].fillna("").astype(str)
+        else:
+            status_series = pd.Series([""] * total)
+
+        fila = int((status_series == "Fila de envio").sum())
+        enviados = int((status_series == "Enviado").sum())
+        invalidos = int((status_series == "Número inválido").sum())
+
+        def perc(qtd: int) -> str:
+            return f"{(qtd / total * 100):.1f}%" if total > 0 else "0%"
+
+        return {
+            "total": total,
+            "fila": {"qtd": fila, "perc": perc(fila)},
+            "enviados": {"qtd": enviados, "perc": perc(enviados)},
+            "invalidos": {"qtd": invalidos, "perc": perc(invalidos)},
+        }
+    except Exception as e:
+        return {"erro": str(e)}
+
+
+def start_driver() -> webdriver.Chrome:
+    path = ChromeDriverManager().install()
+    options = Options()
+    options.add_argument('--ignore-certificate-errors')
+    options.add_argument('--ignore-ssl-errors')
+    # Em desktops/VM, pode ser útil manter visível (sem headless):
+    driver = webdriver.Chrome(service=Service(path), options=options)
+    driver.get('https://web.whatsapp.com')
+    return driver
+
+
+from selenium.webdriver.common.keys import Keys
+
+def enviar(driver: webdriver.Chrome, numero: str, mensagem: str) -> bool:
+    try:
+        numero = numero.replace(" ", "")
+        from urllib.parse import quote
+        mensagem_q = quote(mensagem)
+
+        # Abre a conversa já com o texto pré-preenchido
+        driver.get(f"https://web.whatsapp.com/send?phone={numero}&text={mensagem_q}")
+
+        # Conta quantas mensagens "message-out" existem antes do envio
+        previous = len(driver.find_elements(By.XPATH, "//div[contains(@class,'message-out')]"))
+
+        # Espera o editor aparecer e garante foco
+        input_by, input_value = resolve_selector("chat_input")
+        chat_input = WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((input_by, input_value))
+        )
+        # clica e foca o editor (em algumas versões o botão de enviar só aparece após foco)
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", chat_input)
+        chat_input.click()
+
+        # cheque de número inválido antes de tentar enviar
+        if number_looks_invalid(driver):
+            log(f"[WARN] Número inválido detectado para {numero}.")
+            return False
+
+        # Aguarda botão enviar ficar clicável
+        send_by, send_value = resolve_selector("send_button")
+        try:
+            send_btn = WebDriverWait(driver, 15).until(
+                EC.element_to_be_clickable((send_by, send_value))
+            )
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", send_btn)
+            send_btn.click()
+        except Exception:
+            # Plano B: enter no editor
+            try:
+                chat_input.send_keys(Keys.ENTER)
+            except Exception:
+                log(f"[WARN] Falha ao clicar no botão e ao enviar com ENTER ({numero}).")
+                return False
+
+        # Confirma que apareceu uma nova mensagem enviada
+        if not wait_for_message_sent(driver, previous, timeout=10):
+            log(f"[WARN] Não consegui confirmar envio para {numero}.")
+            return False
+
+        time.sleep(0.8)
+        return True
+
+    except Exception as e:
+        print(f"[ERRO] Falha ao enviar para {numero}: {e}")
+        return False
+
+
+
+def run_sending(
+    tempo_min: int,
+    tempo_max: int,
+    mensagem_template: str,
+    mensagens_min: int,
+    mensagens_max: int,
+    minutos_min: int,
+    minutos_max: int,
+):
+    log("[DEBUG] Iniciando envio de mensagens...")
+    df = STATE["df"]
+    if df is None or df.empty:
+        log("Nenhum dado disponível para envio.")
+        return
+
+    driver = STATE["driver"]
+    if driver is None:
+        log("⚠️ Driver/WhatsApp não inicializado. Clique em 'Iniciar WhatsApp Web' antes.")
+        return
+
+    try:
+        # Espera até o WhatsApp estar pronto (área lateral carregada)
+        sidebar_by, sidebar_value = resolve_selector("sidebar")
+        while len(driver.find_elements(sidebar_by, sidebar_value)) < 1:
+            time.sleep(1)
+
+        log("WhatsApp Web está pronto para envio.")
+
+        batch_min = max(1, mensagens_min)
+        batch_max = max(batch_min, mensagens_max)
+        pause_min = max(0, minutos_min)
+        pause_max = max(pause_min, minutos_max)
+        batch_target = random.randint(batch_min, batch_max)
+        batch_counter = 0
+
+        # Itera somente quem está na fila
+        fila_indices = list(df[df['Status'] == 'Fila de envio'].index)
+        for posicao, idx in enumerate(fila_indices):
+            row = df.loc[idx]
+            if STATE["stop_flag"]:
+                log("Envio interrompido pelo usuário.")
+                break
+
+            numero = row['Telefone']
+            nome = row['Nome']
+            mensagem = (
+                mensagem_template
+                .replace("-&numero", numero)
+                .replace("-&nome", nome)
+            )
+
+            log(f"Enviando para {nome} ({numero})")
+            sucesso = enviar(driver, numero, mensagem)
+
+            if sucesso:
+                df.at[idx, 'Status'] = 'Enviado'
+                log(f"✅ Mensagem enviada para {nome}")
+
+                delay = random.randint(tempo_min, tempo_max)
+                for i in range(delay, 0, -1):
+                    log(f"Próximo envio em {i} segundos...")
+                    time.sleep(1)
+                log("⏭️ Próximo contato...")
+
+            else:
+                df.at[idx, 'Status'] = 'Número inválido'
+                log(f"⚠️ Falha ao enviar para {nome} ({numero}) — número inválido.")
+                log("⏭️ Pulando para o próximo contato...")
+
+            batch_counter += 1
+            if (
+                batch_counter >= batch_target
+                and pause_max > 0
+                and posicao != len(fila_indices) - 1
+            ):
+                pause_minutes = random.randint(pause_min, pause_max)
+                if pause_minutes > 0:
+                    pause_seconds = pause_minutes * 60
+                    log(f"⏸️ Pausando por {pause_minutes} minutos.")
+                    for remaining in range(pause_seconds, 0, -1):
+                        log(f"Pausa ativa - voltando em {remaining} segundos...")
+                        time.sleep(1)
+                    log("▶️ Retomando envios...")
+                batch_counter = 0
+                batch_target = random.randint(batch_min, batch_max)
+
+            # Salva progresso sempre
+            try:
+                out = BytesIO()
+                df.to_excel(out, index=False)
+                out.seek(0)
+                with open("BancoProd.xlsx", "wb") as f:
+                    f.write(out.read())
+            except Exception as e:
+                log(f"[ERRO] Falha ao salvar BancoProd.xlsx: {e}")
+
+        STATE["df"] = df
+
+    except Exception as e:
+        log(f"[ERRO] Envio interrompido: {e}")
+
+
+# ============ Rotas ============
+@app.get("/selectors")
+def get_selectors():
+    return jsonify(SELECTORS)
+
+
+@app.post("/selectors")
+def update_selectors():
+    data = request.get_json()
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "msg": "Formato inválido."}), 400
+
+    updated = {}
+    for key, default in DEFAULT_SELECTORS.items():
+        entry = data.get(key)
+        if not isinstance(entry, dict):
+            continue
+        by = (entry.get("by") or default["by"]).upper()
+        value = str(entry.get("value", "")).strip()
+        if not value:
+            return jsonify({"ok": False, "msg": f"Valor requerido para {key}."}), 400
+        if by not in ALLOWED_BY:
+            return jsonify({"ok": False, "msg": f"Tipo de seletor inválido para {key}."}), 400
+        updated[key] = {"by": by, "value": value}
+
+    if not updated:
+        return jsonify({"ok": False, "msg": "Nenhum seletor informado."}), 400
+
+    SELECTORS.update(updated)
+    persist_selectors()
+    return jsonify({"ok": True, "msg": "Seletores atualizados com sucesso."})
+
+
+@app.post("/selectors/reset")
+def reset_selectors():
+    global SELECTORS
+    SELECTORS = load_selectors(force_default=True)
+    persist_selectors()
+    return jsonify({"ok": True, "msg": "Seletores restaurados para os padrões."})
+
+
+@app.get("/")
+def index():
+    return render_template("index.html")
+
+
+@app.post("/upload")
+def upload():
+    """
+    Suporta upload de arquivo direto (form-data: file),
+    ou base64 em JSON: { "nome_arquivo": "...", "conteudo_base64": "data:...base64,..." }
+    """
+    try:
+        # 1) Via form-data
+        if "file" in request.files:
+            f = request.files["file"]
+            name = f.filename.lower()
+            buf = BytesIO(f.read())
+        else:
+            # 2) Via JSON base64
+            data = request.get_json(silent=True) or {}
+            nome_arquivo = data.get("nome_arquivo", "")
+            conteudo_base64 = data.get("conteudo_base64", "")
+            if not conteudo_base64:
+                return jsonify({"ok": False, "msg": "Nada enviado."}), 400
+            decoded = base64.b64decode(conteudo_base64.split(",")[1])
+            buf = BytesIO(decoded)
+            name = nome_arquivo.lower()
+
+        if name.endswith(".csv"):
+            df = pd.read_csv(buf)
+        elif name.endswith(".xlsx"):
+            df = pd.read_excel(buf, engine="openpyxl")
+        elif name.endswith(".html"):
+            df = pd.read_html(buf)[0]
+        else:
+            return jsonify({"ok": False, "msg": "Formato de arquivo não suportado."}), 400
+
+        STATE["df"] = df
+        return jsonify({"ok": True, "msg": "Arquivo carregado com sucesso.", "rows": len(df)})
+
+    except Exception as e:
+        return jsonify({"ok": False, "msg": f"Erro ao carregar: {e}"}), 500
+
+
+@app.post("/tratar")
+def tratar():
+    """Mantém a mesma semântica do projeto original: filtro: sim | nao | -1 | continuar; agrupar: bool"""
+    data = request.get_json()
+    filtro = (data or {}).get("filtro")
+    agrupar = bool((data or {}).get("agrupar", True))
+    try:
+        df = STATE["df"]
+        if df is None or df.empty:
+            return jsonify({"ok": False, "msg": "Carregue um arquivo antes."}), 400
+
+        if filtro in ["sim", "nao", "-1"]:
+            df = preprocess_dataframe(df)
+            dec_rebanho = pd.to_numeric(df["Dec. Rebanho"], errors="coerce")
+            if filtro == "sim":
+                df = df[dec_rebanho == 1]
+            elif filtro == "nao":
+                df = df[dec_rebanho == 0]
+            else:
+                df = df[dec_rebanho == -1]
+        elif filtro == "continuar":
+            if "Status" not in df.columns:
+                return jsonify({"ok": False, "msg": "Arquivo não contém dados já tratados para continuar."}), 400
+            df = df[df["Status"] == "Fila de envio"]
+        else:
+            # nenhum filtro ⇒ apenas normaliza se ainda não tiver Status
+            if "Status" not in df.columns:
+                df = preprocess_dataframe(df)
+
+        if agrupar:
+            df = (
+                df.groupby(["Status", "Telefone"])["Nome"]
+                .apply(lambda x: " || ".join(x))
+                .reset_index()
+            )
+            df["Status"] = "Fila de envio"
+
+        STATE["df"] = df.reset_index(drop=True)
+        return jsonify({"ok": True, "msg": f"{len(df)} contatos preparados para envio."})
+    except Exception as e:
+        return jsonify({"ok": False, "msg": f"Erro ao tratar dados: {e}"}), 500
+
+
+@app.get("/tabela")
+def tabela():
+    html = df_to_visible_html(STATE["df"])
+    return html
+
+
+@app.get("/stats")
+def stats():
+    return jsonify(get_stats(STATE["df"]))
+
+
+@app.post("/start_whatsapp")
+def start_whatsapp():
+    try:
+        if STATE["driver"] is None:
+            STATE["driver"] = start_driver()
+        # Espera elemento "side" (lista de conversas) aparecer (limite brando)
+        # Deixa o front avisar o usuário para escanear QR, se necessário.
+        return jsonify({"ok": True, "msg": "WhatsApp Web aberto. Escaneie o QR (se necessário)."})
+    except Exception as e:
+        return jsonify({"ok": False, "msg": f"Erro ao iniciar WhatsApp: {e}"}), 500
+
+
+@app.post("/send")
+def send():
+    data = request.get_json() or {}
+    tempo_min = max(1, int(data.get("tempo_min", 25)))
+    tempo_max = max(tempo_min, int(data.get("tempo_max", 37)))
+    mensagem_template = str(data.get("mensagem_template", "Olá -&nome, contato: -&numero"))
+    mensagens_min = max(1, int(data.get("mensagens_min", 30)))
+    mensagens_max = max(mensagens_min, int(data.get("mensagens_max", 40)))
+    minutos_min = max(0, int(data.get("minutos_min", 1)))
+    minutos_max = max(minutos_min, int(data.get("minutos_max", 3)))
+
+    if STATE["sending_thread"] and STATE["sending_thread"].is_alive():
+        return jsonify({"ok": False, "msg": "Envio já está em andamento."}), 400
+
+    STATE["stop_flag"] = False
+    t = threading.Thread(
+        target=run_sending,
+        args=(
+            tempo_min,
+            tempo_max,
+            mensagem_template,
+            mensagens_min,
+            mensagens_max,
+            minutos_min,
+            minutos_max,
+        ),
+        daemon=True,
+    )
+    STATE["sending_thread"] = t
+    t.start()
+    return jsonify({"ok": True, "msg": "Envio iniciado."})
+
+
+@app.post("/stop")
+def stop():
+    STATE["stop_flag"] = True
+    return jsonify({"ok": True, "msg": "Sinal de parada enviado."})
+
+
+@app.get("/download")
+def download():
+    df = STATE["df"]
+    if df is None or df.empty:
+        return jsonify({"ok": False, "msg": "Sem dados."}), 400
+    out = BytesIO()
+    df.to_excel(out, index=False)
+    out.seek(0)
+    return send_file(out, as_attachment=True, download_name="BancoProd.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.get("/stream")
+def stream():
+    """Server-Sent Events: o front consome /stream para receber logs em tempo real."""
+    def event_stream():
+        while True:
+            msg = STATE["logs"].get()
+            yield f"data: {msg}\n\n"
+    return Response(event_stream(), mimetype="text/event-stream")
+
+
+if __name__ == "__main__":
+    # Em rede local, pode pôr host="0.0.0.0"
+    app.run(debug=True, host="127.0.0.1", port=5000)
