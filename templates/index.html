@@ -600,6 +600,7 @@
     const selectorsSaveBtn = document.getElementById('saveSelectorsBtn');
     const selectorsResetBtn = document.getElementById('resetSelectorsBtn');
     const statsDonuts = document.getElementById('statsDonuts');
+    let statsRefreshTimeout = null;
     const loteInfo = document.getElementById('loteInfo');
     let lotePlanejado = null;
     let loteRestante = null;
@@ -688,6 +689,10 @@
       if (msg.includes("Mensagem enviada") && typeof loteRestante === "number" && loteRestante > 0) {
         loteRestante = Math.max(0, loteRestante - 1);
         updateLoteInfoText();
+      }
+
+      if (shouldRefreshStats(msg)) {
+        requestStatsRefresh();
       }
     }
 
@@ -860,6 +865,31 @@
             renderDonut("Inválidos", invalidos, total, "#ff6b6b"),
           ].join("");
         });
+    }
+
+    function requestStatsRefresh() {
+      if (statsRefreshTimeout) {
+        clearTimeout(statsRefreshTimeout);
+      }
+      statsRefreshTimeout = setTimeout(() => {
+        refreshStats();
+        statsRefreshTimeout = null;
+      }, 400);
+    }
+
+    function shouldRefreshStats(msg) {
+      if (!msg) return false;
+      const lower = msg
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+      return (
+        lower.includes("mensagem enviada") ||
+        lower.includes("falha ao enviar") ||
+        lower.includes("numero inval") ||
+        lower.includes("envio interrompido") ||
+        lower.includes("pulando para o proximo contato")
+      );
     }
 
     function downloadExcel() {
