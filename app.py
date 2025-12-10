@@ -5,6 +5,7 @@ import base64
 import random
 import threading
 import queue
+import re
 from copy import deepcopy
 from io import BytesIO
 from typing import Optional, Tuple
@@ -158,20 +159,111 @@ def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df = df.drop(columns=colunas[:3])
 
     # Normalização de telefone
-    df['Telefone'] = (
-        df['Telefone']
-        .astype(str)
-        .str.replace(r'[^0-9]', '', regex=True)
-        .str.zfill(10)
-    )
-    df = df[~df['Telefone'].str.match(r'^\d{6}0000$')]
-    df['Telefone'] = '+55' + df['Telefone']
-    df['Telefone'] = df['Telefone'].apply(
-        lambda telefone: telefone[:5] + telefone[6:] if len(telefone) == 15 else telefone
-    )
-    df['Telefone'] = df['Telefone'].str[:3] + ' ' + df['Telefone'].str[3:5] + ' ' + df['Telefone'].str[5:]
+    df["Telefone"] = df["Telefone"].apply(normalize_phone_number)
+    df = df[df["Telefone"].notna() & (df["Telefone"] != "")]
     df["Status"] = "Fila de envio"
     return df[["Status", "Nome", "Telefone", "Dec. Rebanho"]]
+
+
+def _normalize_col_key(name: str) -> str:
+    """Remove caracteres nÇ£o alfanumÇ¸ricos para facilitar matching de cabeÇ§alhos."""
+    return re.sub(r"[^a-z0-9]+", "", str(name).lower())
+
+
+def normalize_phone_number(val: str) -> Optional[str]:
+    """Normaliza telefone e descarta padrÇ®es claramente invÇ­lidos (zeros/DDD 00)."""
+    digits = re.sub(r"[^0-9]", "", str(val or ""))
+    if not digits:
+        return None
+    if len(digits) > 10:
+        digits = digits[-10:]  # mantém o final, que costuma conter DDD+número
+    digits = digits.zfill(10)
+
+    if digits == "0000000000":
+        return None
+    if digits.startswith("00"):
+        return None
+    if re.match(r"^\d{6}0000$", digits):
+        return None
+
+    phone = "+55" + digits
+    if len(phone) == 15:
+        phone = phone[:5] + phone[6:]
+    phone = phone[:3] + " " + phone[3:5] + " " + phone[5:]
+    return phone
+
+
+def preprocess_outros_animais_inadimplentes(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Trata planilhas HTML de outros animais (ex.: lista suinos.html) filtrando inadimplentes.
+    Espera colunas como Declarou, Nome do Titular da Explora‡Æo, Endere‡o, Munic¡pio + Cidade/Distrito e telefones.
+    """
+    col_candidates = {
+        "declarou": ["declarou", "declarao", "declaracao"],
+        "nome": [
+            "nomedotitulardaexploracao",
+            "nomedotitular",
+            "nomedotitulardaexplorao",
+        ],
+        "endereco": ["endereco", "enderecodaexploracao", "endereo"],
+        "municipio": [
+            "municipiocidadedistrito",
+            "municpiocidadedistrito",
+            "municipio",
+            "municipioecidade",
+            "cidade",
+        ],
+        "telefone1": ["telefone1", "telefoneprimario"],
+        "telefone2": ["telefone2", "telefonesecundario"],
+        "celular": ["celular", "telefonecelular"],
+    }
+
+    def find_col(target_key: str) -> Optional[str]:
+        desired = {key for key in col_candidates[target_key]}
+        for col in df.columns:
+            if _normalize_col_key(col) in desired:
+                return col
+        return None
+
+    col_declarou = find_col("declarou")
+    col_nome = find_col("nome")
+    col_endereco = find_col("endereco")
+    col_municipio = find_col("municipio")
+    col_tel1 = find_col("telefone1")
+    col_tel2 = find_col("telefone2")
+    col_cel = find_col("celular")
+
+    required = [col_declarou, col_nome, col_endereco, col_municipio]
+    if any(col is None for col in required):
+        raise ValueError("Colunas obrigatÇ®rias da lista de outros animais nÇ£o foram encontradas.")
+
+    telefone_cols = [c for c in [col_tel1, col_tel2, col_cel] if c is not None]
+    if not telefone_cols:
+        raise ValueError("NÇ§o hÇ¸ colunas de telefone reconhecidas.")
+
+    df_local = df[[col_declarou, col_nome, col_endereco, col_municipio] + telefone_cols].copy()
+    dec_numeric = pd.to_numeric(df_local[col_declarou], errors="coerce")
+    df_local = df_local[dec_numeric == -1]
+    if df_local.empty:
+        raise ValueError("Nenhum registro inadimplente encontrado para tratar.")
+
+    df_local = pd.melt(
+        df_local,
+        id_vars=[col_declarou, col_nome, col_endereco, col_municipio],
+        value_vars=telefone_cols,
+        value_name="Telefone",
+    ).drop(columns=["variable"])
+
+    df_local["Telefone"] = df_local["Telefone"].apply(normalize_phone_number)
+    df_local = df_local[df_local["Telefone"].notna() & (df_local["Telefone"] != "")]
+
+    df_local["Nome"] = df_local.apply(
+        lambda row: f"{row[col_nome]} - {row[col_endereco]} - {row[col_municipio]}",
+        axis=1,
+    )
+    df_local["Dec. Rebanho"] = -1
+    df_local["Status"] = "Fila de envio"
+    return df_local[["Status", "Nome", "Telefone", "Dec. Rebanho"]]
 
 
 def get_stats(df: Optional[pd.DataFrame]):
@@ -473,7 +565,7 @@ def upload():
 
 @app.post("/tratar")
 def tratar():
-    """Mantém a mesma semântica do projeto original: filtro: sim | nao | -1 | continuar; agrupar: bool"""
+    """Mantem a mesma semantica do projeto original: filtro: sim | nao | -1 | continuar; agrupar: bool"""
     data = request.get_json()
     filtro = (data or {}).get("filtro")
     agrupar = bool((data or {}).get("agrupar", True))
@@ -491,14 +583,19 @@ def tratar():
                 df = df[dec_rebanho == 0]
             else:
                 df = df[dec_rebanho == -1]
+        elif filtro == "outros_inadimplentes":
+            df = preprocess_outros_animais_inadimplentes(df)
         elif filtro == "continuar":
             if "Status" not in df.columns:
-                return jsonify({"ok": False, "msg": "Arquivo não contém dados já tratados para continuar."}), 400
+                return jsonify({"ok": False, "msg": "Arquivo nao contem dados ja tratados para continuar."}), 400
             df = df[df["Status"] == "Fila de envio"]
         else:
-            # nenhum filtro ⇒ apenas normaliza se ainda não tiver Status
+            # nenhum filtro definido: apenas normaliza se ainda nao tiver Status
             if "Status" not in df.columns:
-                df = preprocess_dataframe(df)
+                try:
+                    df = preprocess_dataframe(df)
+                except Exception:
+                    df = preprocess_outros_animais_inadimplentes(df)
 
         if agrupar:
             df = (
