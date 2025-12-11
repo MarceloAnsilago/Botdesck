@@ -360,6 +360,9 @@ def enviar(driver: webdriver.Chrome, numero: str, mensagem: str) -> bool:
         # Conta quantas mensagens "message-out" existem antes do envio
         previous = len(driver.find_elements(By.XPATH, "//div[contains(@class,'message-out')]"))
 
+        # Delay aleatório antes de interagir (3 a 8s) para parecer humano
+        time.sleep(random.uniform(3, 8))
+
         # Espera o editor aparecer e garante foco (com fallbacks)
         input_by, input_value = resolve_selector("chat_input")
         chat_candidates = [(input_by, input_value)] + FALLBACK_CHAT_INPUT_SELECTORS
