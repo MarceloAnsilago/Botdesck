@@ -27,11 +27,38 @@ from webdriver_manager.chrome import ChromeDriverManager
 app = Flask(__name__)
 SELECTORS_FILE = os.path.join(app.root_path, "selectors.json")
 DEFAULT_SELECTORS = {
-    "chat_input": {"by": "XPATH", "value": '//*[@id="main"]/footer/div[1]/div/span/div/div[2]/div/div[3]/div[1]/p'},
-    "send_button": {"by": "XPATH", "value": '//*[@id="main"]/footer/div[1]/div/span/div/div[2]/div/div[4]/div/span/div/div/div[1]/div[1]/span'},
+    # Editor de mensagem (contenteditable no footer)
+    "chat_input": {"by": "CSS_SELECTOR", "value": "footer [contenteditable='true'][data-tab]"},
+    # Botão de enviar (por data-icon/aria-label)
+    "send_button": {"by": "CSS_SELECTOR", "value": "footer button[data-icon='send'], footer button[aria-label*='Enviar'], footer button[aria-label*='Send']"},
     "sidebar": {"by": "ID", "value": "side"},
 }
 ALLOWED_BY = {"XPATH", "CSS_SELECTOR", "ID", "CLASS_NAME", "NAME", "TAG_NAME"}
+FALLBACK_SEND_SELECTORS = [
+    # CSS direto pelo ícone
+    (By.CSS_SELECTOR, "footer button[data-icon='send']"),
+    (By.CSS_SELECTOR, "footer span[data-icon='send']"),
+    (By.CSS_SELECTOR, "button[aria-label*='Enviar']"),
+    (By.CSS_SELECTOR, "button[aria-label*='Send']"),
+    (By.CSS_SELECTOR, "span[data-icon='send']"),
+    (By.CSS_SELECTOR, "button[data-icon='send']"),
+    # Botao direto que voce enviou
+    (By.XPATH, "//*[@id='main']/footer/div[1]/div/span/div/div/div/div[4]/div/span/button"),
+    # Retangulo do botao (versoes antigas)
+    (By.XPATH, '//*[@id="main"]/footer/div[1]/div/span/div/div/div/div[4]/div/span/button/div/div'),
+    # Interior do mesmo botao (caso o wrapper mude)
+    (By.XPATH, '//*[@id="main"]/footer/div[1]/div/span/div/div/div/div[4]/div/span/button/div/div/div[1]/span'),
+    # Alvos genericos por aria-label/data-icon
+    (By.XPATH, "//button[@aria-label='Enviar' or @aria-label='Send']"),
+    (By.XPATH, "//footer//button[contains(@aria-label,'Enviar') or contains(@aria-label,'Send')]"),
+    (By.XPATH, "//footer//*[contains(@data-icon,'send')]"),
+]
+# Fallbacks para o input de chat
+FALLBACK_CHAT_INPUT_SELECTORS = [
+    (By.CSS_SELECTOR, "div[contenteditable='true'][data-tab]"),
+    (By.CSS_SELECTOR, "footer [contenteditable='true']"),
+    (By.XPATH, "//*[@id='main']//div[@contenteditable='true' and @data-tab]"),
+]
 
 def load_selectors(force_default: bool = False):
     base = deepcopy(DEFAULT_SELECTORS)
@@ -171,28 +198,29 @@ def _normalize_col_key(name: str) -> str:
 
 
 def normalize_phone_number(val: str) -> Optional[str]:
-    """Normaliza telefone e descarta padrÇ®es claramente invÇ­lidos (zeros/DDD 00)."""
+    """Normaliza telefone BR e descarta padrões claramente inválidos."""
     digits = re.sub(r"[^0-9]", "", str(val or ""))
     if not digits:
         return None
-    if len(digits) > 10:
-        digits = digits[-10:]  # mantém o final, que costuma conter DDD+número
-    digits = digits.zfill(10)
 
-    if digits == "0000000000":
+    if digits.startswith("55") and len(digits) >= 12:
+        digits = digits[2:]
+    if len(digits) > 11:
+        digits = digits[-11:]
+    if len(digits) not in (10, 11):
+        return None
+    if set(digits) == {"0"}:
         return None
     if digits.startswith("00"):
         return None
-    if re.match(r"^\d{6}0000$", digits):
+    if len(digits) == 10 and re.match(r"^\d{6}0000$", digits):
+        return None
+    if len(digits) == 11 and re.match(r"^\d{7}0000$", digits):
         return None
 
     phone = "+55" + digits
-    if len(phone) == 15:
-        phone = phone[:5] + phone[6:]
     phone = phone[:3] + " " + phone[3:5] + " " + phone[5:]
     return phone
-
-
 def preprocess_outros_animais_inadimplentes(df: pd.DataFrame) -> pd.DataFrame:
     """
     Trata planilhas HTML de outros animais (ex.: lista suinos.html) filtrando inadimplentes.
@@ -326,45 +354,88 @@ def enviar(driver: webdriver.Chrome, numero: str, mensagem: str) -> bool:
         from urllib.parse import quote
         mensagem_q = quote(mensagem)
 
-        # Abre a conversa já com o texto pré-preenchido
+        # Abre a conversa com o texto pre-preenchido
         driver.get(f"https://web.whatsapp.com/send?phone={numero}&text={mensagem_q}")
 
         # Conta quantas mensagens "message-out" existem antes do envio
         previous = len(driver.find_elements(By.XPATH, "//div[contains(@class,'message-out')]"))
 
-        # Espera o editor aparecer e garante foco
+        # Espera o editor aparecer e garante foco (com fallbacks)
         input_by, input_value = resolve_selector("chat_input")
-        chat_input = WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((input_by, input_value))
-        )
-        # clica e foca o editor (em algumas versões o botão de enviar só aparece após foco)
-        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", chat_input)
-        chat_input.click()
-
-        # cheque de número inválido antes de tentar enviar
-        if number_looks_invalid(driver):
-            log(f"[WARN] Número inválido detectado para {numero}.")
+        chat_candidates = [(input_by, input_value)] + FALLBACK_CHAT_INPUT_SELECTORS
+        chat_input = None
+        for by_opt, value_opt in chat_candidates:
+            try:
+                chat_input = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((by_opt, value_opt))
+                )
+                driver.execute_script("arguments[0].scrollIntoView({block:'center'});", chat_input)
+                chat_input.click()
+                break
+            except Exception:
+                chat_input = None
+        if chat_input is None:
+            log("[WARN] NÇåo encontrei o editor de mensagem.")
             return False
 
-        # Aguarda botão enviar ficar clicável
+        # Checa numero invalido antes de tentar enviar
+        if number_looks_invalid(driver):
+            log(f"[WARN] Numero invalido detectado para {numero}.")
+            return False
+
+        # Aguarda botao enviar ficar clicavel, com fallback de seletores
         send_by, send_value = resolve_selector("send_button")
-        try:
-            send_btn = WebDriverWait(driver, 15).until(
-                EC.element_to_be_clickable((send_by, send_value))
-            )
-            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", send_btn)
-            send_btn.click()
-        except Exception:
-            # Plano B: enter no editor
+        send_candidates = [(send_by, send_value)]
+        for alt in FALLBACK_SEND_SELECTORS:
+            if alt not in send_candidates:
+                send_candidates.append(alt)
+
+        last_error = None
+        send_btn = None
+        for by_opt, value_opt in send_candidates:
             try:
-                chat_input.send_keys(Keys.ENTER)
-            except Exception:
-                log(f"[WARN] Falha ao clicar no botão e ao enviar com ENTER ({numero}).")
-                return False
+                send_btn = WebDriverWait(driver, 8).until(
+                    EC.element_to_be_clickable((by_opt, value_opt))
+                )
+                driver.execute_script("arguments[0].scrollIntoView({block:'center'});", send_btn)
+                send_btn.click()
+                break
+            except Exception as click_err:
+                last_error = click_err
+                send_btn = None
+
+        if send_btn is None:
+            # Tenta clique via JS com seletores mais amplos
+            js_selectors = [
+                "button[aria-label*='Enviar']",
+                "button[aria-label*='Send']",
+                "span[data-icon='send']",
+                "button[data-icon='send']",
+                "footer button[aria-label]"
+            ]
+            clicked_js = False
+            for sel in js_selectors:
+                try:
+                    clicked_js = driver.execute_script(
+                        "const el = document.querySelector(arguments[0]); if(el){el.click(); return true;} return false;",
+                        sel,
+                    )
+                    if clicked_js:
+                        break
+                except Exception as js_err:
+                    last_error = js_err
+
+            if not clicked_js:
+                # Plano B: enter no editor
+                try:
+                    chat_input.send_keys(Keys.ENTER)
+                except Exception:
+                    log(f"[WARN] Falha ao clicar no botao (ultimo erro: {last_error}) e ao enviar com ENTER ({numero}).")
+                    return False
 
         # Confirma que apareceu uma nova mensagem enviada
         if not wait_for_message_sent(driver, previous, timeout=10):
-            log(f"[WARN] Não consegui confirmar envio para {numero}.")
+            log(f"[WARN] Nao consegui confirmar envio para {numero}.")
             return False
 
         time.sleep(0.8)
@@ -372,8 +443,8 @@ def enviar(driver: webdriver.Chrome, numero: str, mensagem: str) -> bool:
 
     except Exception as e:
         print(f"[ERRO] Falha ao enviar para {numero}: {e}")
+        log(f"[ERRO] Falha ao enviar para {numero}: {e}")
         return False
-
 
 
 def run_sending(
